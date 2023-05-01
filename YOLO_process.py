@@ -13,11 +13,10 @@ from TensorFlowYOLOv3.yolov3.configs import *
 
 
 class YoloProcess(Process):
-    def __init__(self, from_mainwin: Queue, to_mainwin: Queue, to_emitter: Pipe, status_lock : Lock):
+    def __init__(self, from_emitter: Queue, to_emitter: Queue, status_lock : Lock):
         super().__init__()
-        self.commands = from_mainwin
-        self.send_im = to_mainwin
-        self.pipe_to_emitter = to_emitter
+        self.commands = from_emitter
+        self.send_im = to_emitter
         self.status_lock = status_lock
 
 
@@ -40,7 +39,7 @@ class YoloProcess(Process):
                                      show=True, CLASSES=TRAIN_CLASSES, rectangle_colors=(255, 0, 0))
                 print("YOLO: Изображение обработано")
                 self.send_im.put(bboxes)
-                self.pipe_to_emitter.send("OK")
+                # self.pipe_to_emitter.send("OK")
             if command == "video":
                 im = self.commands.get()
                 bboxes = detect_image_for_vid(yolo, im, "./IMAGES/plate_1_detect.jpg", input_size=YOLO_INPUT_SIZE,

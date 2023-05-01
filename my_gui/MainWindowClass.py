@@ -14,10 +14,13 @@ import anvil.server
 
 qt_creator_file = "./my_gui/test.ui"
 Ui_MainWindow, QtBaseClass = uic.loadUiType(qt_creator_file)
+
+
 # anvil.server.connect("client_EC6WNV3EV2M5WPBYZKU6R4UU-VKPUFIU4RXBWF7MK")
 
 class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
-    def __init__(self, queue_to_yolo: Queue, queue_from_yolo: Queue, emitter: Emitter, lock: Lock):
+    def __init__(self, to_emitter: Queue, from_emitter: Queue,
+                 emitter: Emitter, lock: Lock):
         QtWidgets.QMainWindow.__init__(self)
         Ui_MainWindow.__init__(self)
         self.setupUi(self)
@@ -25,8 +28,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.emitter = emitter
         self.emitter.daemon = True
         self.emitter.start()
-        self.to_yolo = queue_to_yolo
-        self.from_yolo = queue_from_yolo
+        self.to_emitter = to_emitter
+        self.from_emitter = from_emitter
         self.lock = lock
         self.graph = FilterGraph()
         self.device = None
@@ -51,7 +54,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.browserPathLineEdit.setText("")
         # self.testBut.clicked.connect(self.test)
 
-
         # test section
         self.rb = QtWidgets.QRadioButton()
         self.l = QtWidgets.QLabel()
@@ -65,10 +67,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         # self.test.currentText()
         # self.rb.clicked()
         self.lineedit = QtWidgets.QLineEdit()
+
     # test section
-    #server_UEMV3BW3LSDTQKDRMBFZRZKQ-VKPUFIU4RXBWF7MK
-    #client_EC6WNV3EV2M5WPBYZKU6R4UU-VKPUFIU4RXBWF7MK
-#Секция ГУИ
+    # server_UEMV3BW3LSDTQKDRMBFZRZKQ-VKPUFIU4RXBWF7MK
+    # client_EC6WNV3EV2M5WPBYZKU6R4UU-VKPUFIU4RXBWF7MK
+    # Секция ГУИ
     # def test(self):
     #     try:
     #         im = cv2.imread(self.images[self.currentImage])
@@ -127,6 +130,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         except Exception as e:
             print(str(e))
             print("Что то не так!")
+
     # "C:\\Users\\User\\PycharmProjects\\CNN1\\TensorFlowYOLOv3\\IMAGES\\B0015_0001.png"
 
     # Изменение пути к папке с изобр
@@ -139,7 +143,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def imagesPathChanged(self):
         self.getImagesFromDir(self.browserPathLineEdit.text())
 
-    #Вывод изображения на окно: форматирование и выбор йоло или сурс
+    # Вывод изображения на окно: форматирование и выбор йоло или сурс
     def putImageToLabel(self):
         if self.currentImageYolo is None or not self.showBoxesRB.isChecked():
             image = self.resizeImage(cv2.imread(self.images[self.currentImage]))
@@ -147,7 +151,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             image = self.currentImageYolo
         self.showImage(image)
 
-    #Вывод изображения на окно: вывод в лайбл
+    # Вывод изображения на окно: вывод в лайбл
     def showImage(self, image):
         qformat = QtGui.QImage.Format.Format_Indexed8
         if len(image.shape) == 3:
@@ -164,10 +168,10 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.imageLabel.setPixmap(QtGui.QPixmap.fromImage(img))
             self.imageLabel.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
-    #Закрытие окна
+    # Закрытие окна
     def closeEvent(self, event):
         # self.lock.acquire(block=True)
-        self.to_yolo.put("exit")
+        self.to_emitter.put("exit")
         # while True:
         #     ex_ = self.from_yolo.get()
         #     print(ex_ == "exit")
@@ -190,7 +194,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         else:
             self.putImageToLabel()
 
-
     # Секция ГУИ
 
     # Секция йоло
@@ -209,12 +212,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 break
             # Our operations on the frame come here
 
-            self.to_yolo.put("video")
-            self.to_yolo.put(frame)
+            self.to_emitter.put("video")
+            self.to_emitter.put(frame)
 
             frameYolo = self.resizeImage(
                 draw_bbox(frame,
-                          self.from_yolo.get(),
+                          self.from_emitter.get(),
                           CLASSES=TRAIN_CLASSES,
                           rectangle_colors=(255, 0, 0))
             )
@@ -228,19 +231,22 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         cv2.destroyAllWindows()
 
     def sendImageToYolo(self, im: str):
-        self.to_yolo.put("image")
+        self.to_emitter.put("image")
         print("Main: Отправка изображения к yolo")
-        self.to_yolo.put(im)
+        self.to_emitter.put(im)
 
-    def getImageFromYolo(self):
+    def getImageFromYolo(self, bboxes):
         try:
-
+            print("Main: получили bboxы")
+            print("Main: рисуем")
             self.currentImageYolo = self.resizeImage(
                 draw_bbox(cv2.imread(self.images[self.currentImage]),
-                          self.from_yolo.get(),
+                          bboxes,  # self.from_emitter.get(),
                           CLASSES=TRAIN_CLASSES,
                           rectangle_colors=(255, 0, 0))
             )
+
+            print("Main: нарисовали")
             print("Main: релиз лока")
             self.lock.release()
             self.putImageToLabel()
@@ -250,7 +256,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     # Секция йоло
 
     # Секция утилиты
-    #резайз изобр под корректный вывод в лайбл
+    # резайз изобр под корректный вывод в лайбл
     def resizeImage(self, image):
         try:
             w_w = self.imageLabel.size().width()
@@ -274,7 +280,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             print(e)
             return image
 
-    #Генератор изобр для ввода из папки
+    # Генератор изобр для ввода из папки
     def getImagesFromDir(self, path):
         self.images = []
         if path == "":
@@ -302,6 +308,5 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             cv2.imwrite(os.path.join(SAVE_DIR, path), self.currentImageYolo)
 
             print("Main: Сохранён " + path)
-
 
 # Секция утилиты

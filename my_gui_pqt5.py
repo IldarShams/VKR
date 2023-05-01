@@ -14,19 +14,27 @@ from multiprocessing import Pipe
 
 
 if __name__ == "__main__":
-    mother_pipe, child_pipe = Pipe()
-    queue_form_win_to_yolo = Queue()
-    queue_from_yolo_to_win = Queue()
-    lock = Lock()
+    try:
+        queue_form_win_to_emitter = Queue()
+        queue_from_emitter_to_win = Queue()
+        queue_form_emitter_to_yolo = Queue()
+        queue_from_yolo_to_emitter = Queue()
+        lock = Lock()
 
-    app = QApplication(sys.argv)
+        app = QApplication(sys.argv)
 
 
-    # запуск процесса нейронки
-    emitter = Emitter(mother_pipe)
-    yolo = YoloProcess(queue_form_win_to_yolo, queue_from_yolo_to_win, child_pipe, lock)
-    yolo.start()
+        # запуск процесса нейронки
+        emitter = Emitter(queue_form_emitter_to_yolo,
+                          queue_from_yolo_to_emitter,
+                          queue_form_win_to_emitter,
+                          queue_from_emitter_to_win)
+        # yolo = YoloProcess(queue_form_emitter_to_yolo, queue_from_yolo_to_emitter, lock)
+        # yolo.start()
 
-    window = MainWindow(queue_form_win_to_yolo, queue_from_yolo_to_win, emitter, lock)
-    window.show()
-    app.exec()
+        window = MainWindow(queue_form_win_to_emitter, queue_from_emitter_to_win, emitter, lock)
+        window.show()
+        app.exec()
+    except Exception as e:
+        print(e)
+        exit(1)
