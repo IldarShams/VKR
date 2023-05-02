@@ -58,7 +58,10 @@ class Emitter(QThread):
                 bboxes = server.call("process_image", blobMedia, "uint8")
                 print("Emitter: получили боксы")
                 print("Emitter: отправка боксов")
-                self.image_available.emit(bboxes)
+                if command == "video":
+                    self.send_gui.put(bboxes)
+                else:
+                    self.image_available.emit(bboxes)
             except EOFError:
                 print("Emitter: Что то пошло не так")
             except Exception as e:
