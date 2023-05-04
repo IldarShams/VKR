@@ -3,11 +3,12 @@ import cv2
 from datetime import datetime
 import os
 from pygrabber.dshow_graph import FilterGraph
-from multiprocessing import Queue, Lock
+from multiprocessing import Queue, Lock, Pipe
 from PyQt6 import QtCore, QtGui, QtWidgets, uic
 from PyQt6.QtCore import Qt
 from my_gui.config import *
 from my_gui.Emitter import *
+from my_gui.VideoThread import *
 from TensorFlowYOLOv3.yolov3.utils import *
 from TensorFlowYOLOv3.yolov3.configs import *
 import anvil.server
@@ -24,6 +25,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         QtWidgets.QMainWindow.__init__(self)
         Ui_MainWindow.__init__(self)
         self.setupUi(self)
+        self.state = "image"
 
         self.emitter = emitter
         self.emitter.daemon = True
@@ -33,6 +35,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.lock = lock
         self.graph = FilterGraph()
         self.device = None
+        self.vidth = None
+        self.to_vidth = Queue()
 
         self.currentImage = None
         self.currentImageYolo = None
@@ -52,6 +56,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.saveButton.clicked.connect(self.saveImage)
         self.images = None
         self.browserPathLineEdit.setText("")
+        self.emitter.status_message.connect(self.put_status)
         # self.testBut.clicked.connect(self.test)
 
         # test section
@@ -87,33 +92,43 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     #     except Exception as e:
     #         print(e)
 
+    def put_status(self, text):
+        self.statusbar.showMessage(text)
+
     # Изменение способа ввода изображения
     def videoDeviceChanged(self):
-        if self.videoDevices.currentIndex() == 0:
-            self.browserPathButton.setEnabled(True)
-            self.browserPathLineEdit.setEnabled(True)
-            self.nextButton.setEnabled(True)
-            self.backButton.setEnabled(True)
-            self.device = None
+        try:
+            if self.videoDevices.currentIndex() == 0:
+                if not self.vidth is None:
+                    self.to_vidth.put("exit")
+                self.browserPathButton.setEnabled(True)
+                self.browserPathLineEdit.setEnabled(True)
+                self.nextButton.setEnabled(True)
+                self.backButton.setEnabled(True)
+                self.device = None
+                self.state = "image"
 
-        else:
-            self.browserPathButton.setEnabled(False)
-            self.browserPathLineEdit.setEnabled(False)
-            self.nextButton.setEnabled(False)
-            self.backButton.setEnabled(False)
-            self.videoProcessing()
-            # self.to_yolo.put("video")
-            # print("Main: Отправка девайса к yolo")
-            # self.to_yolo.put(self.videoDevices.currentText())
+            else:
+                while not self.to_vidth.empty():
+                    self.to_vidth.get()
+                self.browserPathButton.setEnabled(False)
+                self.browserPathLineEdit.setEnabled(False)
+                self.nextButton.setEnabled(False)
+                self.backButton.setEnabled(False)
+                self.state = "video"
+                self.device = self.videoDevices.currentText()
+                self.videoProcessing()
+        except Exception as e:
+            print(e)
 
     # Переход к след изобр в папке, обработка в йоло
     def nextImage(self, direction: bool):
         try:
             use_yolo = self.showBoxesRB.isChecked()
             if use_yolo:
-                print("Main: взятие лока")
+                self.statusbar.showMessage("Main: взятие лока")
                 if not self.lock.acquire(block=False):
-                    print("Main: yolo занята, нет возможности перейти к след. изобр")
+                    self.statusbar.showMessage("Main: сеть занята, нет возможности перейти к след. изобр")
                     return
             if direction:
                 self.currentImage += 1
@@ -127,6 +142,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         except AttributeError as e:
             print(str(e))
             print("Путь не задан")
+            self.statusbar.showMessage("Путь не задан")
         except Exception as e:
             print(str(e))
             print("Что то не так!")
@@ -144,11 +160,16 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.getImagesFromDir(self.browserPathLineEdit.text())
 
     # Вывод изображения на окно: форматирование и выбор йоло или сурс
-    def putImageToLabel(self):
-        if self.currentImageYolo is None or not self.showBoxesRB.isChecked():
-            image = self.resizeImage(cv2.imread(self.images[self.currentImage]))
-        else:
-            image = self.currentImageYolo
+    def putImageToLabel(self, mode="image"):
+        if mode == "image":
+            if self.currentImage is None:
+                return
+            if self.currentImageYolo is None or not self.showBoxesRB.isChecked():
+                image = self.resizeImage(cv2.imread(self.images[self.currentImage]))
+            else:
+                image = self.currentImageYolo
+        else: #video
+            image = self.resizeImage(self.currentImageYolo)
         self.showImage(image)
 
     # Вывод изображения на окно: вывод в лайбл
@@ -170,84 +191,51 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     # Закрытие окна
     def closeEvent(self, event):
-        # self.lock.acquire(block=True)
         self.to_emitter.put("exit")
-        # while True:
-        #     ex_ = self.from_yolo.get()
-        #     print(ex_ == "exit")
-        #     if ex_ == "exit":
-        #         break
-        #     continue
         QtWidgets.QMainWindow.closeEvent(self, event)
 
     # Показать ограничивающие области радио батон чек
     def showBB_changed(self, show_bb: bool):
-        if show_bb:
-            if self.currentImageYolo is None:
-                print("Main: взятие лока")
-                if not self.lock.acquire(block=False):
-                    print("Main: yolo занята, нет возможности перейти к след. изобр")
-                    return
-                self.sendImageToYolo(self.images[self.currentImage])
+        if self.state == "video":
+            self.to_vidth.put("mode")
+            self.to_vidth.put(show_bb)
+        else:  #image
+            if show_bb and self.currentImage is not None:
+                if self.currentImageYolo is None:
+                    print("Main: взятие лока")
+                    self.statusbar.showMessage("Main: взятие лока")
+                    if not self.lock.acquire(block=False):
+                        print("Main: yolo занята, нет возможности перейти к след. изобр")
+                        self.statusbar.showMessage("Main: yolo занята, нет возможности перейти к след. изобр")
+                        return
+                    self.sendImageToYolo(self.images[self.currentImage])
+                else:
+                    self.putImageToLabel()
             else:
                 self.putImageToLabel()
-        else:
-            self.putImageToLabel()
 
     # Секция ГУИ
 
     # Секция йоло
-    def videoProcessing(self):
-        device = self.graph.get_input_devices().index(self.videoDevices.currentText())
-        cap = cv2.VideoCapture(device)
-        if not cap.isOpened():
-            print("Cannot open camera")
-            exit()
-        while True:
-            # Capture frame-by-frame
-            ret, frame = cap.read()
-            # if frame is read correctly ret is True
-            if not ret:
-                print("Can't receive frame (stream end?). Exiting ...")
-                break
-            # Our operations on the frame come here
 
-            self.to_emitter.put("video")
-            self.to_emitter.put(frame)
-
-            frameYolo = self.resizeImage(
-                draw_bbox(frame,
-                          self.from_emitter.get(),
-                          CLASSES=TRAIN_CLASSES,
-                          rectangle_colors=(255, 0, 0))
-            )
-
-            # Display the resulting frame
-            cv2.imshow('frame', frameYolo)
-            if cv2.waitKey(1) == ord('q'):
-                break
-        # When everything done, release the capture
-        cap.release()
-        cv2.destroyAllWindows()
 
     def sendImageToYolo(self, im: str):
         self.to_emitter.put("image")
         print("Main: Отправка изображения к yolo")
+        self.statusbar.showMessage("Main: Отправка изображения к yolo")
         self.to_emitter.put(im)
 
     def getImageFromYolo(self, bboxes):
         try:
-            print("Main: получили bboxы")
-            print("Main: рисуем")
+            self.statusbar.showMessage("Main: получили области")
+            self.statusbar.showMessage("Main: рисуем области")
             self.currentImageYolo = self.resizeImage(
                 draw_bbox(cv2.imread(self.images[self.currentImage]),
                           bboxes,  # self.from_emitter.get(),
                           CLASSES=TRAIN_CLASSES,
                           rectangle_colors=(255, 0, 0))
             )
-
-            print("Main: нарисовали")
-            print("Main: релиз лока")
+            self.statusbar.showMessage("Main: релиз лока")
             self.lock.release()
             self.putImageToLabel()
         except Exception as e:
@@ -256,6 +244,23 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     # Секция йоло
 
     # Секция утилиты
+    #Запуск потока для обработки видео
+    def videoProcessing(self):
+        try:
+            self.vidth = VideoThread(self.to_emitter, self.from_emitter,
+                                     self.device, self.to_vidth)
+            self.vidth.video_frame_available.connect(self.getImageFromVid)
+            self.vidth.daemon = True
+            self.to_vidth.put("mode")
+            self.to_vidth.put(self.showBoxesRB.isChecked())
+            self.vidth.start()
+
+        except Exception as e:
+            print(e)
+
+    def getImageFromVid(self, im):
+        self.currentImageYolo = im
+        self.putImageToLabel(mode="video")
     # резайз изобр под корректный вывод в лайбл
     def resizeImage(self, image):
         try:
@@ -292,10 +297,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     self.images.append(path + "/" + image)
             if len(self.images) > 0:
                 self.currentImage = 0
+                self.putImageToLabel()
             else:
                 self.currentImage = None
-            print(self.images)
-            print(self.currentImage)
+            # print(self.images)
+            # print(self.currentImage)
         except os.error:
             print("os.error")
 
@@ -305,8 +311,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             path = os.path.join(SAVE_DIR, now.strftime("%d_%m_%Y_%H_%M_%S") + ".jpg")
 
             print("Main: Сохранение " + path)
-            cv2.imwrite(os.path.join(SAVE_DIR, path), self.currentImageYolo)
-
+            self.statusbar.showMessage("Main: Сохранение " + path)
+            try:
+                cv2.imwrite(os.path.join(SAVE_DIR, path), self.currentImageYolo)
+            except Exception  as e:
+                print(e)
             print("Main: Сохранён " + path)
+            self.statusbar.showMessage("Main: Сохранён " + path)
 
 # Секция утилиты

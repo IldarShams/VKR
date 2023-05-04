@@ -1,1 +1,1 @@
-SAVE_DIR = "/TensorFlowYOLOv3\\IMAGES\\SAVE_DIR\\"
+SAVE_DIR = "C:\\Users\\User\\PycharmProjects\\CNN1\\TensorFlowYOLOv3\\IMAGES\\SAVE_DIR"

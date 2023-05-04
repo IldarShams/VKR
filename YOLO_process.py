@@ -21,7 +21,12 @@ class YoloProcess(Process):
 
 
     def run(self):
-        yolo = Load_Yolo_model()
+        try:
+            yolo = Load_Yolo_model()
+            self.send_im.put("OK")
+        except Exception as e:
+            print(e)
+            exit(1)
         command = ""
         while True:
             print("YOLO: Нейронка ожидает ввод")
