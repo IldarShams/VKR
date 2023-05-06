@@ -43,8 +43,9 @@ if __name__ == "__main__":
                           queue_form_win_to_emitter,
                           queue_from_emitter_to_win, mode)
         if mode == "process":
-            yolo = YoloProcess(queue_form_emitter_to_yolo, queue_from_yolo_to_emitter, lock)
-            yolo.start()
+           pass
+            # yolo = YoloProcess(queue_form_emitter_to_yolo, queue_from_yolo_to_emitter, lock)
+            # yolo.start()
 
         window = MainWindow(queue_form_win_to_emitter, queue_from_emitter_to_win, emitter, lock)
         window.show()

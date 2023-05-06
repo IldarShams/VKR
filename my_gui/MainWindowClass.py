@@ -37,9 +37,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.device = None
         self.vidth = None
         self.to_vidth = Queue()
+        self.image_scale = 1
 
         self.currentImage = None
         self.currentImageYolo = None
+        self.dropNextImage = False
 
         try:
             self.videoDevices.addItems(["File System"] + self.graph.get_input_devices())
@@ -57,6 +59,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.images = None
         self.browserPathLineEdit.setText("")
         self.emitter.status_message.connect(self.put_status)
+        # self.widthChanged.connect(self.window_shape_changed_process)
+        # self.heightChanged.connect(self.window_shape_changed_process)
         # self.testBut.clicked.connect(self.test)
 
         # test section
@@ -72,6 +76,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         # self.test.currentText()
         # self.rb.clicked()
         self.lineedit = QtWidgets.QLineEdit()
+        
+        self.scrollAreaContent.setMinimumSize(802, 479)
+        self.imageLabel.setMinimumSize(802, 479)
+        self.scrollAreaContent.resize(802, 479)
+        self.imageLabel.resize(802, 479)
 
     # test section
     # server_UEMV3BW3LSDTQKDRMBFZRZKQ-VKPUFIU4RXBWF7MK
@@ -92,6 +101,52 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     #     except Exception as e:
     #         print(e)
 
+    def updateImage(self):
+        try:
+            # self.scrollArea.updateGeometry()
+            s = self.scrollArea.size()
+            h = int(s.height() * self.image_scale)
+            w = int(s.width() * self.image_scale)
+            print(w,h)
+            self.imageLabel.resize(w, h)
+            if self.state == "image":
+                self.putImageToLabel()
+        except Exception as e:
+            print(e)
+
+    def keyPressEvent(self, event):
+        if event.key() == 16777249:
+            self.scrollAreaContent.setMinimumSize(0, 0)
+            self.imageLabel.setMinimumSize(0, 0)
+            self.scrollAreaContent.resize(0, 0)
+    def keyReleaseEvent(self, event):
+        if event.key() == 16777249:
+            s = self.scrollArea.size()
+            h = int(s.height() * self.image_scale)
+            w = int(s.width() * self.image_scale)
+            self.scrollAreaContent.setMinimumSize(w, h)
+            self.scrollAreaContent.resize(w, h)
+            self.imageLabel.setMinimumSize(w, h)
+    def wheelEvent(self, event):
+        try:
+
+            if event.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier:
+                self.image_scale += event.angleDelta().y() / 1200 / 2
+                if (self.image_scale < 0):
+                    self.image_scale = 0
+                self.updateImage()
+        except Exception as e:
+            print(e)
+
+    def resizeEvent(self, event):
+        self.imageLabel.clear()
+        self.updateImage()
+        # print(self.scrollArea.size())
+        # size = self.scrollArea.size()
+        # self.imageLabel.setGeometry(0, 0, self.scrollArea.size()[])
+        # self.scrollArea.updateGeometry()
+        # print("чек")
+
     def put_status(self, text):
         self.statusbar.showMessage(text)
 
@@ -99,8 +154,14 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def videoDeviceChanged(self):
         try:
             if self.videoDevices.currentIndex() == 0:
-                if not self.vidth is None:
-                    self.to_vidth.put("exit")
+                if self.vidth is not None:
+                    try:
+                        if self.vidth.isRunning():
+                            self.to_vidth.put("exit")
+                            if self.vidth.wait():
+                                print("Main: Поток закрыт")
+                    except Exception as e:
+                        print(e)
                 self.browserPathButton.setEnabled(True)
                 self.browserPathLineEdit.setEnabled(True)
                 self.nextButton.setEnabled(True)
@@ -109,6 +170,14 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.state = "image"
 
             else:
+                if self.vidth is not None:
+                    try:
+                        if self.vidth.isRunning():
+                            self.to_vidth.put("exit")
+                            if self.vidth.wait():
+                                print("Main: Поток закрыт")
+                    except Exception as e:
+                        print(e)
                 while not self.to_vidth.empty():
                     self.to_vidth.get()
                 self.browserPathButton.setEnabled(False)
@@ -124,6 +193,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     # Переход к след изобр в папке, обработка в йоло
     def nextImage(self, direction: bool):
         try:
+            if not self.showBoxesRB.isChecked():
+                if not self.lock.acquire(block=False):
+                    self.dropNextImage = True
+                else:
+                    self.lock.release()
+
             use_yolo = self.showBoxesRB.isChecked()
             if use_yolo:
                 self.statusbar.showMessage("Main: взятие лока")
@@ -168,7 +243,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 image = self.resizeImage(cv2.imread(self.images[self.currentImage]))
             else:
                 image = self.currentImageYolo
-        else: #video
+        else:  # video
             image = self.resizeImage(self.currentImageYolo)
         self.showImage(image)
 
@@ -191,7 +266,18 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     # Закрытие окна
     def closeEvent(self, event):
-        self.to_emitter.put("exit")
+        try:
+            self.to_emitter.put("exit")
+        except Exception as e:
+            print(e)
+        if self.vidth is not None:
+            try:
+                if self.vidth.isRunning():
+                    self.to_vidth.put("exit")
+                    if self.vidth.wait():
+                        print("Main: Поток закрыт")
+            except Exception as e:
+                print(e)
         QtWidgets.QMainWindow.closeEvent(self, event)
 
     # Показать ограничивающие области радио батон чек
@@ -199,7 +285,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if self.state == "video":
             self.to_vidth.put("mode")
             self.to_vidth.put(show_bb)
-        else:  #image
+        else:  # image
             if show_bb and self.currentImage is not None:
                 if self.currentImageYolo is None:
                     print("Main: взятие лока")
@@ -218,7 +304,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     # Секция йоло
 
-
     def sendImageToYolo(self, im: str):
         self.to_emitter.put("image")
         print("Main: Отправка изображения к yolo")
@@ -227,7 +312,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def getImageFromYolo(self, bboxes):
         try:
-            self.statusbar.showMessage("Main: получили области")
+            if self.dropNextImage:
+                self.dropNextImage = False
+                self.lock.release()
+                self.currentImageYolo = None
+                return
             self.statusbar.showMessage("Main: рисуем области")
             self.currentImageYolo = self.resizeImage(
                 draw_bbox(cv2.imread(self.images[self.currentImage]),
@@ -244,7 +333,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     # Секция йоло
 
     # Секция утилиты
-    #Запуск потока для обработки видео
+    # Запуск потока для обработки видео
     def videoProcessing(self):
         try:
             self.vidth = VideoThread(self.to_emitter, self.from_emitter,
@@ -261,11 +350,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def getImageFromVid(self, im):
         self.currentImageYolo = im
         self.putImageToLabel(mode="video")
+
     # резайз изобр под корректный вывод в лайбл
     def resizeImage(self, image):
         try:
-            w_w = self.imageLabel.size().width()
-            w_h = self.imageLabel.size().height()
+            w_w = self.imageLabel.size().width() - 5
+            w_h = self.imageLabel.size().height() - 5
             # print(w_w, w_h)
             im_h = image.shape[0]
             im_w = image.shape[1]
@@ -278,6 +368,15 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 k = im_h / w_h
                 im_h = w_h
                 im_w = round(im_w / k)
+            if im_w < w_w and im_h < w_h:
+                if w_w - im_w > w_h - im_h:
+                    k = im_h / w_h
+                    im_h = w_h
+                    im_w = round(im_w / k)
+                else:
+                    k = im_w / w_w
+                    im_w = w_w
+                    im_h = round(im_h / k)
             # print(im_w, im_h)
             im = cv2.resize(image, (im_w, im_h))
             return im
@@ -314,7 +413,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.statusbar.showMessage("Main: Сохранение " + path)
             try:
                 cv2.imwrite(os.path.join(SAVE_DIR, path), self.currentImageYolo)
-            except Exception  as e:
+            except Exception as e:
                 print(e)
             print("Main: Сохранён " + path)
             self.statusbar.showMessage("Main: Сохранён " + path)
