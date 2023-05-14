@@ -2,6 +2,7 @@ import sys
 import cv2
 from datetime import datetime
 import os
+import json
 from pygrabber.dshow_graph import FilterGraph
 from multiprocessing import Queue, Lock, Pipe
 from PyQt6 import QtCore, QtGui, QtWidgets, uic
@@ -15,6 +16,7 @@ import anvil.server
 
 qt_creator_file = "./my_gui/test.ui"
 Ui_MainWindow, QtBaseClass = uic.loadUiType(qt_creator_file)
+
 
 
 # anvil.server.connect("client_EC6WNV3EV2M5WPBYZKU6R4UU-VKPUFIU4RXBWF7MK")
@@ -37,11 +39,17 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.device = None
         self.vidth = None
         self.to_vidth = Queue()
-        self.image_scale = 1
 
         self.currentImage = None
         self.currentImageYolo = None
+
         self.dropNextImage = False
+        self.image_scale = 1
+        self.relVSlidePos = 0
+        self.relHSlidePos = 0
+        self.maxVSlidePos = 0
+        self.maxHSlidePos = 0
+        self.sizing = False
 
         try:
             self.videoDevices.addItems(["File System"] + self.graph.get_input_devices())
@@ -56,16 +64,25 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.browserPathLineEdit.textChanged.connect(self.imagesPathChanged)
         self.showBoxesRB.clicked.connect(self.showBB_changed)
         self.saveButton.clicked.connect(self.saveImage)
+        self.savePathButton.clicked.connect(self.getSavePathDirectory)
         self.images = None
         self.browserPathLineEdit.setText("")
         self.emitter.status_message.connect(self.put_status)
-        # self.widthChanged.connect(self.window_shape_changed_process)
-        # self.heightChanged.connect(self.window_shape_changed_process)
-        # self.testBut.clicked.connect(self.test)
+
+        self.scrollArea.verticalScrollBar().rangeChanged.connect(self.scrollBarRangeChanged)
+        self.scrollArea.horizontalScrollBar().rangeChanged.connect(self.scrollBarRangeChanged)
+        self.scrollArea.verticalScrollBar().valueChanged.connect(self.scrollBarValueChanged)
+        self.scrollArea.horizontalScrollBar().valueChanged.connect(self.scrollBarValueChanged)
+        self.currentVSlidePos = 0
+        self.currentHSlidePos = 0
+        self.delta = 1
 
         # test section
+
+
         self.rb = QtWidgets.QRadioButton()
         self.l = QtWidgets.QLabel()
+        # self.scroll = QtWidgets.QScrollArea()
         self.test = QtWidgets.QComboBox()
         self.but = QtWidgets.QPushButton()
         self.but.setEnabled(True)
@@ -76,11 +93,23 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         # self.test.currentText()
         # self.rb.clicked()
         self.lineedit = QtWidgets.QLineEdit()
-        
+
         self.scrollAreaContent.setMinimumSize(802, 479)
         self.imageLabel.setMinimumSize(802, 479)
         self.scrollAreaContent.resize(802, 479)
         self.imageLabel.resize(802, 479)
+        try:
+            with open("./config.json") as config:
+                c = json.load(config)
+
+                SAVE_DIR = c["SAVE_PATH"]
+                IMAGE_DIR = c["IMAGE_DIR"]
+                if os.path.isdir(SAVE_DIR):
+                    self.savePathLineEdit.setText(SAVE_DIR)
+                if os.path.isdir(IMAGE_DIR):
+                    self.browserPathLineEdit.setText(IMAGE_DIR)
+        except Exception as e:
+          self.statusbar.showMessage("Main: ошибка файла конфигурации")
 
     # test section
     # server_UEMV3BW3LSDTQKDRMBFZRZKQ-VKPUFIU4RXBWF7MK
@@ -101,51 +130,104 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     #     except Exception as e:
     #         print(e)
 
+    def scrollBarRangeChanged(self, min=0, max=0):
+        if self.sizing:
+            self.currentVSlidePos = self.scrollArea.verticalScrollBar().sliderPosition() + 1
+            self.currentHSlidePos = self.scrollArea.horizontalScrollBar().sliderPosition() + 1
+            self.maxVSlidePos = self.scrollArea.verticalScrollBar().maximum()
+            self.maxHSlidePos = self.scrollArea.horizontalScrollBar().maximum()
+            if self.maxHSlidePos == 0:
+                self.maxHSlidePos = 2
+            if self.maxVSlidePos == 0:
+                self.maxVSlidePos = 2
+            self.relVSlidePos =  self.currentVSlidePos / self.maxVSlidePos
+            self.relHSlidePos =  self.currentHSlidePos / self.maxHSlidePos
+
+    def scrollBarValueChanged(self, val):
+        if self.sizing:
+            self.scrollArea.verticalScrollBar().setSliderPosition(int(self.currentVSlidePos* self.delta))
+            self.scrollArea.horizontalScrollBar().setSliderPosition(int(self.currentHSlidePos * self.delta))
+            # print(min, max)
+
     def updateImage(self):
         try:
             # self.scrollArea.updateGeometry()
             s = self.scrollArea.size()
             h = int(s.height() * self.image_scale)
             w = int(s.width() * self.image_scale)
-            print(w,h)
+            # print(w, h)
             self.imageLabel.resize(w, h)
+            # print(self.state)
             if self.state == "image":
                 self.putImageToLabel()
+
         except Exception as e:
             print(e)
 
     def keyPressEvent(self, event):
-        if event.key() == 16777249:
-            self.scrollAreaContent.setMinimumSize(0, 0)
-            self.imageLabel.setMinimumSize(0, 0)
-            self.scrollAreaContent.resize(0, 0)
+        try:
+            if event.key() == 16777249:
+                self.sizing = True
+
+                self.currentVSlidePos = self.scrollArea.verticalScrollBar().sliderPosition()
+                self.currentHSlidePos = self.scrollArea.horizontalScrollBar().sliderPosition()
+                self.maxVSlidePos = self.scrollArea.verticalScrollBar().maximum()
+                self.maxHSlidePos = self.scrollArea.horizontalScrollBar().maximum()
+                if self.maxHSlidePos == 0:
+                    self.maxHSlidePos = 2
+                if self.maxVSlidePos == 0:
+                    self.maxVSlidePos = 2
+                self.relVSlidePos = self.currentVSlidePos / self.maxVSlidePos
+                self.relHSlidePos = self.currentHSlidePos / self.maxHSlidePos
+
+        except Exception as e:
+            print(e)
+
     def keyReleaseEvent(self, event):
-        if event.key() == 16777249:
-            s = self.scrollArea.size()
-            h = int(s.height() * self.image_scale)
-            w = int(s.width() * self.image_scale)
-            self.scrollAreaContent.setMinimumSize(w, h)
-            self.scrollAreaContent.resize(w, h)
-            self.imageLabel.setMinimumSize(w, h)
-    def wheelEvent(self, event):
         try:
 
+            if event.key() == 16777249:
+
+                self.sizing = False
+
+                # print(self.maxVSlidePos, self.maxHSlidePos)
+        except Exception as e:
+            print(e)
+
+    def wheelEvent(self, event):
+        try:
             if event.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier:
-                self.image_scale += event.angleDelta().y() / 1200 / 2
+                self.delta = event.angleDelta().y() / 1200 / 2
+                self.image_scale += self.delta
+                self.delta += 1
                 if (self.image_scale < 0):
                     self.image_scale = 0
+                # maxVSlidePos = self.maxVSlidePos * self.image_scale
+                # maxHSlidePos = self.maxHSlidePos * self.image_scale
+
+                # self.scrollArea.verticalScrollBar().setSliderPosition(int(self.relVSlidePos * self.maxVSlidePos))
+                # self.scrollArea.horizontalScrollBar().setSliderPosition(int(self.relHSlidePos * self.maxHSlidePos))
+                s = self.scrollArea.size()
+                h = int(s.height() * self.image_scale)
+                w = int(s.width() * self.image_scale)
+                self.scrollAreaContent.setMinimumSize(w, h)
+                self.scrollAreaContent.resize(w, h)
+                self.imageLabel.setMinimumSize(w, h)
+                # self.maxVSlidePos = self.scrollArea.verticalScrollBar().maximum()
+                # self.maxHSlidePos = self.scrollArea.horizontalScrollBar().maximum()
+                # self.scrollArea.verticalScrollBar().setSliderPosition(int(self.relVSlidePos * self.maxVSlidePos))
+                # self.scrollArea.horizontalScrollBar().setSliderPosition(int(self.relHSlidePos * self.maxHSlidePos))
+
+
+
                 self.updateImage()
+
         except Exception as e:
             print(e)
 
     def resizeEvent(self, event):
         self.imageLabel.clear()
         self.updateImage()
-        # print(self.scrollArea.size())
-        # size = self.scrollArea.size()
-        # self.imageLabel.setGeometry(0, 0, self.scrollArea.size()[])
-        # self.scrollArea.updateGeometry()
-        # print("чек")
 
     def put_status(self, text):
         self.statusbar.showMessage(text)
@@ -229,7 +311,10 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.browserPathLineEdit.setText(
             QtWidgets.QFileDialog.getExistingDirectory(self, "Выберете папку с изображениями",
                                                        "./", QtWidgets.QFileDialog.Option.ShowDirsOnly))
-
+    def getSavePathDirectory(self):
+        self.savePathLineEdit.setText(
+            QtWidgets.QFileDialog.getExistingDirectory(self, "Выберете папку для сохранения",
+                                                       "./", QtWidgets.QFileDialog.Option.ShowDirsOnly))
     # Обновление генератора
     def imagesPathChanged(self):
         self.getImagesFromDir(self.browserPathLineEdit.text())
@@ -406,16 +491,19 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def saveImage(self):
         if self.showBoxesRB.isChecked() and not self.currentImageYolo is None:
-            now = datetime.now()
-            path = os.path.join(SAVE_DIR, now.strftime("%d_%m_%Y_%H_%M_%S") + ".jpg")
+            if not os.path.isdir(self.savePathLineEdit.text()):
+                self.statusbar.showMessage("Main: каталог " + self.savePathLineEdit.text() + " не существует")
+            else:
+                now = datetime.now()
+                path = os.path.join(self.savePathLineEdit.text(), now.strftime("%d_%m_%Y_%H_%M_%S") + ".jpg")
 
-            print("Main: Сохранение " + path)
-            self.statusbar.showMessage("Main: Сохранение " + path)
-            try:
-                cv2.imwrite(os.path.join(SAVE_DIR, path), self.currentImageYolo)
-            except Exception as e:
-                print(e)
-            print("Main: Сохранён " + path)
-            self.statusbar.showMessage("Main: Сохранён " + path)
+                print("Main: Сохранение " + path)
+                self.statusbar.showMessage("Main: Сохранение " + path)
+                try:
+                    cv2.imwrite(os.path.join(SAVE_DIR, path), self.currentImageYolo)
+                except Exception as e:
+                    print(e)
+                print("Main: Сохранён " + path)
+                self.statusbar.showMessage("Main: Сохранён " + path)
 
 # Секция утилиты

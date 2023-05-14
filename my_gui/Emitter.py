@@ -22,12 +22,12 @@ class Emitter(QThread):
             server.connect("client_EC6WNV3EV2M5WPBYZKU6R4UU-VKPUFIU4RXBWF7MK")
 
     def run(self):
-        print("mode=", self.mode)
+        print("mode =", self.mode, self.mode == "process")
         if self.mode == "process":
-            # print("check")
+            print("check")
             self.status_message.emit("YOLO: Загрузка...")
             command = self.get_yolo.get()
-            # print("check2")
+            print("check2")
             if command != "OK":
                 self.status_message.emit("YOLO: Ошибка!")
                 exit(1)
