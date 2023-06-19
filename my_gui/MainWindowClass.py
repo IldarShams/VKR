@@ -77,23 +77,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.currentHSlidePos = 0
         self.delta = 1
 
-        # test section
-
-
-        self.rb = QtWidgets.QRadioButton()
-        self.l = QtWidgets.QLabel()
-        # self.scroll = QtWidgets.QScrollArea()
-        self.test = QtWidgets.QComboBox()
-        self.but = QtWidgets.QPushButton()
-        self.but.setEnabled(True)
-
-        # print(self.imageLabel.size[0])
-        # self.but.pressed.connect()
-        self.rb.isChecked()
-        # self.test.currentText()
-        # self.rb.clicked()
-        self.lineedit = QtWidgets.QLineEdit()
-
         self.scrollAreaContent.setMinimumSize(802, 479)
         self.imageLabel.setMinimumSize(802, 479)
         self.scrollAreaContent.resize(802, 479)
@@ -110,6 +93,24 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     self.browserPathLineEdit.setText(IMAGE_DIR)
         except Exception as e:
           self.statusbar.showMessage("Main: ошибка файла конфигурации")
+
+        # test section
+
+        self.rb = QtWidgets.QRadioButton()
+        self.l = QtWidgets.QLabel()
+        # self.scroll = QtWidgets.QScrollArea()
+        self.test = QtWidgets.QComboBox()
+        self.but = QtWidgets.QPushButton()
+        self.but.setEnabled(True)
+        # self.but.hide
+
+        # print(self.imageLabel.size[0])
+        # self.but.pressed.connect()
+        self.rb.isChecked()
+        # self.test.currentText()
+        # self.rb.clicked()
+        self.lineedit = QtWidgets.QLineEdit()
+        self.progressBar.hide()
 
     # test section
     # server_UEMV3BW3LSDTQKDRMBFZRZKQ-VKPUFIU4RXBWF7MK
@@ -282,7 +283,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     self.lock.release()
 
             use_yolo = self.showBoxesRB.isChecked()
-            if use_yolo:
+            if use_yolo and self.currentImage is not None:
                 self.statusbar.showMessage("Main: взятие лока")
                 if not self.lock.acquire(block=False):
                     self.statusbar.showMessage("Main: сеть занята, нет возможности перейти к след. изобр")
@@ -293,7 +294,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.currentImage -= 1
             self.currentImage = self.currentImage % len(self.images)
             self.currentImageYolo = None
-            if use_yolo:
+            if use_yolo and self.currentImage is not None:
                 self.sendImageToYolo(self.images[self.currentImage])
             self.putImageToLabel()
         except AttributeError as e:
@@ -472,7 +473,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     # Генератор изобр для ввода из папки
     def getImagesFromDir(self, path):
         self.images = []
-        if path == "":
+        if path == "" or not os.path.exists(path):
+            self.imageLabel.clear()
             self.currentImage = None
             return
         try:

@@ -2,7 +2,7 @@ from multiprocessing import Process, Queue, Lock
 from PyQt5.QtCore import pyqtSignal, QThread
 from my_gui.Emitter import *
 import os
-
+import sys
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import cv2
 import numpy as np
@@ -26,7 +26,7 @@ class YoloProcess(Process):
             self.send_im.put("OK")
         except Exception as e:
             print(e)
-            exit(1)
+            sys.exit(1)
         command = ""
         while True:
             print("YOLO: Нейронка ожидает ввод")

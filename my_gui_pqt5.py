@@ -18,12 +18,12 @@ if __name__ == "__main__":
                 mode = "web"
             elif sys.argv[1] == "process":
                 mode = "process"
-            elif sys.argv[1] == "local":
-                mode = "local"
+            # elif sys.argv[1] == "local":
+            #     mode = "local"
             else:
-                exit(1)
+                sys.exit(1)
         else:
-            exit(1)
+            sys.exit(1)
 
         if mode == "process":
             queue_form_emitter_to_yolo = Queue()
@@ -52,4 +52,4 @@ if __name__ == "__main__":
         app.exec()
     except Exception as e:
         print(e)
-        exit(1)
+        sys.exit(1)
